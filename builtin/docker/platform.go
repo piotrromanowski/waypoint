@@ -26,6 +26,8 @@ import (
 	"github.com/hashicorp/waypoint-plugin-sdk/docs"
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	wpdockerclient "github.com/hashicorp/waypoint/builtin/docker/client"
+
+	sdk "github.com/hashicorp/waypoint-plugin-sdk/proto/gen"
 )
 
 const (
@@ -80,7 +82,7 @@ func (p *Platform) Status(
 	ctx context.Context,
 	log hclog.Logger,
 	ui terminal.UI,
-) (*StatusReport, error) {
+) (*sdk.StatusReport, error) {
 	sg := ui.StepGroup()
 	defer sg.Wait()
 
@@ -94,7 +96,7 @@ func (p *Platform) Status(
 	defer func() { s.Abort() }()
 
 	// Create our status report
-	var result StatusReport
+	var result sdk.StatusReport
 	result.External = true
 
 	s.Update("We did it!")
@@ -620,4 +622,5 @@ var (
 	_ component.Platform     = (*Platform)(nil)
 	_ component.Configurable = (*Platform)(nil)
 	_ component.Destroyer    = (*Platform)(nil)
+	_ component.Status       = (*Platform)(nil)
 )
