@@ -139,6 +139,8 @@ func (op *statusReportOperation) Do(ctx context.Context, log hclog.Logger, app *
 		argNamedAny("target", op.Target.Deployment),
 	)
 	if err != nil {
+		// TODO: Look at deployments LoadDetails and how it matches the plugins
+		// Deploy message proto. Need to do the same for StatusReport
 		return nil, err
 	}
 

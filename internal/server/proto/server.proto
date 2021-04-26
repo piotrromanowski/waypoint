@@ -183,7 +183,7 @@ service Waypoint {
   // Exchange a invite token for a login token.
   rpc ConvertInviteToken(ConvertInviteTokenRequest) returns (NewTokenResponse);
 
-  // GetDeployment returns a deployment
+  // GetStatusReport returns a StatusReport
   rpc GetStatusReport(GetStatusReportRequest) returns (StatusReport);
 
   //----------------------------------------------------------------------

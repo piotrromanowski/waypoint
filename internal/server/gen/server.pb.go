@@ -22555,7 +22555,7 @@ type WaypointClient interface {
 	GenerateLoginToken(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*NewTokenResponse, error)
 	// Exchange a invite token for a login token.
 	ConvertInviteToken(ctx context.Context, in *ConvertInviteTokenRequest, opts ...grpc.CallOption) (*NewTokenResponse, error)
-	// GetDeployment returns a deployment
+	// GetStatusReport returns a StatusReport
 	GetStatusReport(ctx context.Context, in *GetStatusReportRequest, opts ...grpc.CallOption) (*StatusReport, error)
 	// RunnerConfig is called to register a runner and receive the configuration
 	// for the runner. The response is a stream so that the configuration can
@@ -23477,7 +23477,7 @@ type WaypointServer interface {
 	GenerateLoginToken(context.Context, *empty.Empty) (*NewTokenResponse, error)
 	// Exchange a invite token for a login token.
 	ConvertInviteToken(context.Context, *ConvertInviteTokenRequest) (*NewTokenResponse, error)
-	// GetDeployment returns a deployment
+	// GetStatusReport returns a StatusReport
 	GetStatusReport(context.Context, *GetStatusReportRequest) (*StatusReport, error)
 	// RunnerConfig is called to register a runner and receive the configuration
 	// for the runner. The response is a stream so that the configuration can

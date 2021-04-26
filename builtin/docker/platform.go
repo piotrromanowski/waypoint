@@ -71,6 +71,38 @@ func (p *Platform) ValidateAuth() error {
 	return nil
 }
 
+// StatusFunc implements component.Status
+func (p *Platform) StatusFunc() interface{} {
+	return p.Status
+}
+
+func (p *Platform) Status(
+	ctx context.Context,
+	log hclog.Logger,
+	ui terminal.UI,
+) (*StatusReport, error) {
+	sg := ui.StepGroup()
+	defer sg.Wait()
+
+	cli, err := p.getDockerClient()
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "unable to create Docker client: %s", err)
+	}
+	cli.NegotiateAPIVersion(ctx)
+
+	s := sg.Add("Gathering status report for Docker...")
+	defer func() { s.Abort() }()
+
+	// Create our status report
+	var result StatusReport
+	result.External = true
+
+	s.Update("We did it!")
+	s.Done()
+
+	return &result, nil
+}
+
 // Deploy deploys an image to Docker.
 func (p *Platform) Deploy(
 	ctx context.Context,
