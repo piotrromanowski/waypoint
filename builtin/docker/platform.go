@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/go-connections/nat"
 	goUnits "github.com/docker/go-units"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-hclog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -81,25 +82,87 @@ func (p *Platform) StatusFunc() interface{} {
 func (p *Platform) Status(
 	ctx context.Context,
 	log hclog.Logger,
+	deployment *Deployment,
 	ui terminal.UI,
 ) (*sdk.StatusReport, error) {
-	sg := ui.StepGroup()
-	defer sg.Wait()
-
 	cli, err := p.getDockerClient()
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "unable to create Docker client: %s", err)
 	}
 	cli.NegotiateAPIVersion(ctx)
 
+	sg := ui.StepGroup()
+	defer sg.Wait()
+
 	s := sg.Add("Gathering status report for Docker...")
-	defer func() { s.Abort() }()
+	defer s.Abort()
+
+	// currently the docker platform only deploys 1 container
+	containerInfo, err := cli.ContainerInspect(ctx, deployment.Container)
+	if err != nil {
+		return nil, err
+	}
 
 	// Create our status report
 	var result sdk.StatusReport
 	result.External = true
 
-	s.Update("We did it!")
+	resources := []*sdk.StatusReport_Resource{{
+		Name: containerInfo.Name,
+	}}
+
+	// TODO: move to isolated func
+	//       improve health check inspection
+	//       use HealthcheckResult messages instead?
+	if containerInfo.State.Health != nil {
+		// NOTE: this only works if the container has configured health checks
+
+		if containerInfo.State.Health.Status == "Healthy" {
+			resources[0].Health = sdk.StatusReport_READY
+			resources[0].HealthMessage = "container is running"
+		} else if containerInfo.State.Health.Status == "Unhealthy" && containerInfo.State.ExitCode != 0 {
+			resources[0].Health = sdk.StatusReport_DOWN
+			resources[0].HealthMessage = "container is down"
+		} else if containerInfo.State.Health.Status == "Starting" {
+			resources[0].Health = sdk.StatusReport_ALIVE
+			resources[0].HealthMessage = "container is still starting"
+		} else {
+			resources[0].Health = sdk.StatusReport_UNKNOWN
+			resources[0].HealthMessage = "unknown status for container"
+		}
+	} else {
+		// Waypoint container inspection
+
+		if containerInfo.State.Running && containerInfo.State.ExitCode == 0 {
+			resources[0].Health = sdk.StatusReport_READY
+			resources[0].HealthMessage = "container is running"
+		} else if containerInfo.State.Restarting || containerInfo.State.Status == "created" {
+			resources[0].Health = sdk.StatusReport_ALIVE
+			resources[0].HealthMessage = "container is still starting"
+		} else if containerInfo.State.Dead || containerInfo.State.OOMKilled || containerInfo.State.ExitCode != 0 {
+			resources[0].Health = sdk.StatusReport_DOWN
+			resources[0].HealthMessage = "container is down"
+		} else {
+			resources[0].Health = sdk.StatusReport_UNKNOWN
+			resources[0].HealthMessage = "unknown status for container"
+		}
+	}
+
+	// TODO: Iterate over all resources to determine overall health
+	result.Resources = resources
+
+	result.TimeGenerated = ptypes.TimestampNow()
+
+	// update output based on main health state
+	s.Update("Finished building report for Docker")
+	s.Done()
+
+	s = sg.Add("")
+	if resources[0].Health == sdk.StatusReport_READY {
+		s.Update("Container %q is ready!", containerInfo.Name)
+	} else {
+		s.Update("Container %q, is not ready!", containerInfo.Name, terminal.WithErrorStyle())
+	}
 	s.Done()
 
 	return &result, nil
@@ -191,6 +254,7 @@ func (p *Platform) Deploy(
 		Image:        img.Image + ":" + img.Tag,
 		ExposedPorts: nat.PortSet{np: struct{}{}},
 		Env:          []string{"PORT=" + port},
+		Labels:       map[string]string{"waypoint-type": "app"},
 	}
 
 	if c := p.config.Command; len(c) > 0 {
