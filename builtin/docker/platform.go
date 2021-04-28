@@ -94,7 +94,7 @@ func (p *Platform) Status(
 	sg := ui.StepGroup()
 	defer sg.Wait()
 
-	s := sg.Add("Gathering status report for Docker...")
+	s := sg.Add("Gathering health report for Docker platform...")
 	defer s.Abort()
 
 	// currently the docker platform only deploys 1 container
@@ -107,28 +107,31 @@ func (p *Platform) Status(
 	var result sdk.StatusReport
 	result.External = true
 
+	// NOTE(briancain): The docker platform currently only deploys a single
+	// container, so for now the status report makes the same assumption.
+
+	log.Debug("querying docker for container health")
+
 	resources := []*sdk.StatusReport_Resource{{
 		Name: containerInfo.Name,
 	}}
 
-	// TODO: move to isolated func
-	//       improve health check inspection
-	//       use HealthcheckResult messages instead?
 	if containerInfo.State.Health != nil {
 		// NOTE: this only works if the container has configured health checks
 
-		if containerInfo.State.Health.Status == "Healthy" {
+		switch containerInfo.State.Health.Status {
+		case "Healthy":
 			resources[0].Health = sdk.StatusReport_READY
 			resources[0].HealthMessage = "container is running"
-		} else if containerInfo.State.Health.Status == "Unhealthy" && containerInfo.State.ExitCode != 0 {
+		case "Unhealthy":
 			resources[0].Health = sdk.StatusReport_DOWN
 			resources[0].HealthMessage = "container is down"
-		} else if containerInfo.State.Health.Status == "Starting" {
+		case "Starting":
 			resources[0].Health = sdk.StatusReport_ALIVE
-			resources[0].HealthMessage = "container is still starting"
-		} else {
+			resources[0].HealthMessage = "container is starting"
+		default:
 			resources[0].Health = sdk.StatusReport_UNKNOWN
-			resources[0].HealthMessage = "unknown status for container"
+			resources[0].HealthMessage = "unknown status reported by docker for container"
 		}
 	} else {
 		// Waypoint container inspection
@@ -148,22 +151,51 @@ func (p *Platform) Status(
 		}
 	}
 
-	// TODO: Iterate over all resources to determine overall health
 	result.Resources = resources
+	var ready, alive, down, unknown int
+	for _, r := range result.Resources {
+		switch r.Health {
+		case sdk.StatusReport_DOWN:
+			down++
+		case sdk.StatusReport_UNKNOWN:
+			unknown++
+		case sdk.StatusReport_READY:
+			ready++
+		case sdk.StatusReport_ALIVE:
+			alive++
+		}
+	}
+
+	if ready == len(result.Resources) {
+		result.Health = sdk.StatusReport_READY
+	} else if down == len(result.Resources) {
+		result.Health = sdk.StatusReport_DOWN
+	} else if unknown == len(result.Resources) {
+		result.Health = sdk.StatusReport_UNKNOWN
+	} else if alive == len(result.Resources) {
+		result.Health = sdk.StatusReport_ALIVE
+	} else {
+		result.Health = sdk.StatusReport_PARTIAL
+	}
 
 	result.TimeGenerated = ptypes.TimestampNow()
+	log.Debug("status report complete")
 
 	// update output based on main health state
-	s.Update("Finished building report for Docker")
+	s.Update("Finished building report for Docker platform")
 	s.Done()
 
-	s = sg.Add("")
-	if resources[0].Health == sdk.StatusReport_READY {
-		s.Update("Container %q is ready!", containerInfo.Name)
+	st := ui.Status()
+	defer st.Close()
+
+	st.Update("Determining overall container health...")
+	if result.Health == sdk.StatusReport_READY {
+		st.Step(terminal.StatusOK, fmt.Sprintf("Container %q is reporting ready!", containerInfo.Name))
+	} else if result.Health == sdk.StatusReport_PARTIAL {
+		st.Step(terminal.StatusWarn, fmt.Sprintf("Container %q is reporting partially available!", containerInfo.Name))
 	} else {
-		s.Update("Container %q, is not ready!", containerInfo.Name, terminal.WithErrorStyle())
+		st.Step(terminal.StatusError, fmt.Sprintf("Container %q is reporting not ready!", containerInfo.Name))
 	}
-	s.Done()
 
 	return &result, nil
 }
